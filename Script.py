@@ -24,7 +24,8 @@ def process_image(filepath, template_path="template.png"):
         img1 = Image.open(filepath).convert("RGBA")
         img2 = Image.open(template_path).convert("RGBA")
         
-        img2 = img2.resize(img1.size, Image.ANTIALIAS)
+        # Use Image.Resampling.LANCZOS instead of ANTIALIAS
+        img2 = img2.resize(img1.size, Image.Resampling.LANCZOS)
         
         img1.paste(img2, (0, 0), img2)
 
@@ -63,10 +64,11 @@ async def get_clothes(session, group_id, amount):
                     if not cursor or len(assets) >= int(amount):
                         return assets
                 else:
-                    await asyncio.sleep(3)
+                    print(f"Unexpected response: {response.status}. Retrying in 5 seconds...")
+                    await asyncio.sleep(5)
         except Exception as e:
-            print(f"Error fetching clothes: {e}")
-            return []
+            print(f"Error fetching clothes: {e}. Retrying in 5 seconds...")
+            await asyncio.sleep(5)
 
 async def get_asset_image_url(session, clothing_id):
     """Fetches the image URL for a clothing item."""
@@ -77,35 +79,46 @@ async def get_asset_image_url(session, clothing_id):
                 content = await response.text()
                 return content.split('<url>http://www.roblox.com/asset/?id=')[1].split('</url>')[0]
             else:
-                print(f"Failed to fetch asset {clothing_id}: {response.status}")
+                print(f"Failed to fetch asset {clothing_id}: {response.status}. Retrying in 5 seconds...")
+                await asyncio.sleep(5)
                 return None
     except Exception as e:
-        print(f"Error fetching asset image URL for {clothing_id}: {e}")
+        print(f"Error fetching asset image URL for {clothing_id}: {e}. Retrying in 5 seconds...")
+        await asyncio.sleep(5)
         return None
 
-async def download_and_save(session, asset_id, clothing_id, clothing_data):
+async def download_and_save(session, asset_id, clothing_data):
     """Downloads and saves a clothing item image."""
     try:
-        save_path = os.path.join("clothes", f"{clothing_id}.png")
+        clothing_name = sanitize_filename(clothing_data["name"])
+        save_path = os.path.join("clothes", f"{clothing_name}.png")
         if not os.path.exists("clothes"):
             os.makedirs("clothes")
 
         if os.path.exists(save_path):
-            print(f"File {clothing_id}.png already exists. Skipping.")
+            print(f"File {clothing_name}.png already exists. Skipping.")
             return
 
-        async with session.get(f"https://assetdelivery.roblox.com/v1/asset?id={asset_id}") as response:
-            if response.status == 200:
-                image_data = await response.read()
-                with open(save_path, "wb") as file:
-                    file.write(image_data)
-                encode_metadata(save_path, clothing_data)
-                process_image(save_path)
-                print(f"Saved and processed {clothing_id} at {save_path}")
-            else:
-                print(f"Failed to download asset {asset_id}: {response.status}")
+        while True:
+            try:
+                async with session.get(f"https://assetdelivery.roblox.com/v1/asset?id={asset_id}") as response:
+                    if response.status == 200:
+                        image_data = await response.read()
+                        with open(save_path, "wb") as file:
+                            file.write(image_data)
+                        encode_metadata(save_path, clothing_data)
+                        process_image(save_path)
+                        print(f"Saved and processed {clothing_name} at {save_path}")
+                        break
+                    else:
+                        print(f"Failed to download asset {asset_id}: {response.status}. Retrying in 5 seconds...")
+                        await asyncio.sleep(5)
+            except Exception as e:
+                print(f"Error downloading asset {asset_id}: {e}. Retrying in 5 seconds...")
+                await asyncio.sleep(5)
     except Exception as e:
-        print(f"Error downloading asset {asset_id}: {e}")
+        print(f"Unexpected error: {e}. Retrying in 5 seconds...")
+        await asyncio.sleep(5)
 
 async def main():
     try:
@@ -121,7 +134,7 @@ async def main():
                     clothing_id = clothing["id"]
                     image_url = await get_asset_image_url(session, clothing_id)
                     if image_url:
-                        tasks.append(download_and_save(session, image_url, clothing_id, clothing))
+                        tasks.append(download_and_save(session, image_url, clothing))
                 await asyncio.gather(*tasks)
             else:
                 print("No clothing items found.")
