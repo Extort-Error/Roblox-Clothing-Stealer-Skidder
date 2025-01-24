@@ -14,3 +14,5 @@ then put your clothing template.png in the same dir as the "skid_clothes.py" mak
 then run "Skid_clothes.py" and it will overlay your template onto the clothing you stole and put it in the skidded folder
 
 Enjoy skidding! :D - 7fx8
+
+ps overlay has to be named "Template.png"
